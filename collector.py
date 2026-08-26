@@ -251,10 +251,51 @@ async def discover_world_urls(page: Page, debug: bool = False) -> list[str]:
         if stagnant >= 8:
             break
 
-        await page.evaluate(
-            "window.scrollTo(0, document.body.scrollHeight)"
-        )
-        await page.wait_for_timeout(900)
+        await page.evaluate("""
+        () => {
+            const modal = document.querySelector('.meta-world-modal');
+
+            if (!modal) {
+                window.scrollTo(0, document.body.scrollHeight);
+                return;
+            }
+
+            const elements = [
+                modal,
+                ...modal.querySelectorAll('*')
+            ];
+
+            const scrollables = elements.filter(el => {
+                const style = window.getComputedStyle(el);
+
+                return (
+                    el.scrollHeight > el.clientHeight + 20 &&
+                    (
+                        style.overflowY === 'auto' ||
+                        style.overflowY === 'scroll'
+                    )
+                );
+            });
+
+            if (scrollables.length > 0) {
+                scrollables.sort(
+                    (a, b) =>
+                        (b.scrollHeight - b.clientHeight) -
+                        (a.scrollHeight - a.clientHeight)
+                );
+
+                const target = scrollables[0];
+
+                target.scrollTop = target.scrollHeight;
+
+                target.dispatchEvent(
+                    new Event('scroll', { bubbles: true })
+                );
+            }        
+        }
+        """)
+
+        await page.wait_for_timeout(1500)
 
     print()
     print(f"[목록] 최종 발견: {len(found)}개")
