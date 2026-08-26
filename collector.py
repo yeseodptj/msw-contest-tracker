@@ -202,7 +202,12 @@ async def discover_world_urls(page: Page, debug: bool = False) -> list[str]:
         )
 
     print("[목록] 모든 참가 월드 목록 열기")
-    await button.first.click(timeout=10_000)
+    await button.first.evaluate("""
+        el => {
+        const target = el.closest('a, button') || el;
+        target.click();
+        }
+    """)
 
     # 목록 페이지가 완전히 열린 뒤 수집
     await page.wait_for_timeout(3000)
