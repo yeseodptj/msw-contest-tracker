@@ -179,6 +179,19 @@ async def extract_english_detail_metrics(context, world_id: str) -> tuple[str | 
 
 
 async def discover_world_urls(page: Page, debug: bool = False) -> list[str]:
+    def log_api(response):
+        try:
+            if response.request.resource_type in {"xhr", "fetch"}:
+                print(
+                    f"[API] {response.status} "
+                    f"{response.request.resource_type} "
+                    f"{response.url}"
+                )
+        except Exception:
+            pass
+
+    page.on("response", log_api)
+
     """
     공식 글로벌 개발 콘테스트 페이지에서
     '모든 참가 월드 보러가기'를 통해 참가작 목록으로 이동한 뒤,
