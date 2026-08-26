@@ -179,59 +179,90 @@ async def extract_english_detail_metrics(context, world_id: str) -> tuple[str | 
 
 
 async def discover_world_urls(page: Page, debug: bool = False) -> list[str]:
-    """글로벌 개발 콘테스트 카테고리를 열고 /play/<world_id> 링크를 전부 모은다."""
-    await page.goto(PLAY_URL, wait_until="domcontentloaded", timeout=90_000)
+    """
+    공식 글로벌 개발 콘테스트 페이지에서
+    '모든 참가 월드 보러가기'를 통해 참가작 목록으로 이동한 뒤,
+    참가 월드의 /play/<world_id> 링크만 수집한다.
+    """
+
+    print("[목록] 글로벌 개발 콘테스트 공식 페이지 접속")
+    await page.goto(
+        CONTEST_URL,
+        wait_until="domcontentloaded",
+        timeout=90_000,
+    )
     await page.wait_for_timeout(2500)
 
-    # 카테고리 클릭. 텍스트/버튼/링크 구현이 바뀌어도 여러 방식으로 시도한다.
-    clicked = False
-    candidates = [
-        page.get_by_text("글로벌 개발 콘테스트", exact=True),
-        page.get_by_role("button", name="글로벌 개발 콘테스트"),
-        page.get_by_role("link", name="글로벌 개발 콘테스트"),
-    ]
-    for loc in candidates:
-        try:
-            if await loc.count():
-                await loc.first.click(timeout=5_000)
-                clicked = True
-                break
-        except Exception:
-            pass
+    # 공식 페이지 하단의 '모든 참가 월드 보러가기' 클릭
+    button = page.get_by_text("모든 참가 월드 보러가기", exact=False)
 
-    if not clicked:
-        print("[경고] 카테고리 버튼을 직접 클릭하지 못했습니다. 현재 페이지의 월드 링크에서 수집을 시도합니다.")
+    if await button.count() == 0:
+        raise RuntimeError(
+            "'모든 참가 월드 보러가기' 버튼을 찾지 못했습니다."
+        )
 
-    await page.wait_for_timeout(1800)
+    print("[목록] 모든 참가 월드 목록 열기")
+    await button.first.click(timeout=10_000)
+
+    # 목록 페이지가 완전히 열린 뒤 수집
+    await page.wait_for_timeout(3000)
+
+    print(f"[목록] 이동된 주소: {page.url}")
 
     found: dict[str, str] = {}
-    stagnant = 0
+
     last_count = 0
-    for _ in range(80):
-        hrefs = await page.locator('a[href*="/play/"]').evaluate_all(
+    stagnant = 0
+
+    # 무한 스크롤 대응
+    for _ in range(120):
+        hrefs = await page.locator(
+            'a[href*="/play/"]'
+        ).evaluate_all(
             "els => els.map(e => e.href).filter(Boolean)"
         )
+
         for href in hrefs:
             wid = extract_world_id(href)
-            if wid:
-                found[wid] = href.split("?")[0]
 
-        if len(found) == last_count:
+            if wid:
+                # 상세 페이지는 반드시 한국어 주소로 통일
+                found[wid] = f"{BASE}/ko/play/{wid}/"
+
+        current_count = len(found)
+
+        print(
+            f"[목록] 현재 발견된 참가 월드: {current_count}개",
+            end="\r",
+        )
+
+        if current_count == last_count:
             stagnant += 1
         else:
             stagnant = 0
-            last_count = len(found)
+            last_count = current_count
 
-        if stagnant >= 5:
+        # 스크롤을 여러 번 해도 더 이상 월드가 안 늘어나면 종료
+        if stagnant >= 8:
             break
 
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await page.wait_for_timeout(700)
+        await page.evaluate(
+            "window.scrollTo(0, document.body.scrollHeight)"
+        )
+        await page.wait_for_timeout(900)
+
+    print()
+    print(f"[목록] 최종 발견: {len(found)}개")
+
+    if len(found) < 90:
+        print(
+            "[경고] 참가작 수가 예상보다 적습니다. "
+            "현재 콘테스트 페이지 로딩 상태를 확인하세요."
+        )
 
     if debug:
-        print(f"[DEBUG] 발견된 월드 링크 {len(found)}개")
-        for u in list(found.values())[:10]:
-            print("  ", u)
+        for url in list(found.values())[:10]:
+            print("  ", url)
 
     return list(found.values())
 
